@@ -204,7 +204,7 @@ def normalize_pose_hands_function(data, body_section, body_part):
     return data, kp_bp_index, body_section_dict
 
 
-def get_dataset_from_hdf5(path,keypoints_model,landmarks_ref,keypoints_number,threshold_frecuency_labels=10,list_labels_banned=[],dict_labels_dataset=None,
+def get_dataset_from_hdf5(path,keypoints_model,words,landmarks_ref,keypoints_number,threshold_frecuency_labels=10,list_labels_banned=[],dict_labels_dataset=None,
                          inv_dict_labels_dataset=None):
     print('path                       :',path)
     print('keypoints_model            :',keypoints_model)
@@ -268,12 +268,16 @@ def get_dataset_from_hdf5(path,keypoints_model,landmarks_ref,keypoints_number,th
     percentage_dataset = []
     max_consec_dataset = []
     time.sleep(2)
+    
     for index in tqdm.tqdm(list(data.keys())):
         data_video = np.array(data[index]['data'])
         data_label = np.array(data[index]['label']).item().decode('utf-8')
         data_num_label = int(np.array(data[index]['class_number']))
         # F x C x K  (frames, coords, keypoitns)
         n_frames, n_axis, n_keypoints = data_video.shape
+
+        if data_label not in words:
+            continue
 
         data_video = np.transpose(data_video, (0,2,1)) #transpose to n_frames, n_keypoints, n_axis 
         if index=='0':
@@ -345,7 +349,7 @@ class LSP_Dataset(Dataset):
     data: [np.ndarray]  # type: ignore
     labels: [np.ndarray]  # type: ignore
 
-    def __init__(self, dataset_filename: str,keypoints_model:str,  transform=None, have_aumentation=True,
+    def __init__(self, dataset_filename: str,keypoints_model:str, words=None, transform=None, have_aumentation=True,
                  augmentations_prob=0.5, normalize=False,landmarks_ref= 'Mapeo landmarks librerias.csv',
                 dict_labels_dataset=None,inv_dict_labels_dataset=None, keypoints_number = 54):
         """
@@ -377,6 +381,7 @@ class LSP_Dataset(Dataset):
 
         video_dataset, video_name_dataset, labels_dataset, encoded_dataset, dict_labels_dataset, inv_dict_labels_dataset, body_section, body_part = get_dataset_from_hdf5(path=dataset_filename,
                                                                                                                                        keypoints_model=keypoints_model,
+                                                                                                                                       words=words,
                                                                                                                                        landmarks_ref=landmarks_ref,
                                                                                                                                        keypoints_number = keypoints_number,
                                                                                                                                        threshold_frecuency_labels =0,

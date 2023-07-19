@@ -11,6 +11,7 @@ from torchvision import transforms
 from pathlib import Path
 import wandb
 import numpy as np
+import pandas as pd
 
 # local
 from datasets.Lsp_dataset import LSP_Dataset
@@ -39,19 +40,26 @@ torch.backends.cudnn.deterministic = True
 g = torch.Generator()
 g.manual_seed(args.seed)
 
-args.prev_num_classes = 20
-args.new_num_classes = 30
+df_words = pd.read_csv("./incrementalList.csv",encoding='utf-8', header=None)
+words = list(df_words[0])
 
-args.training_set_path = f'../ConnectingPoints/split/DGI305--{args.new_num_classes}--incremental--mediapipe-Train.hdf5'
-args.validation_set_path = f'../ConnectingPoints/split/DGI305--{args.new_num_classes}--incremental--mediapipe-Val.hdf5'
+args.prev_num_classes = 38
+args.new_num_classes = len(words)
 
-args.epochs = 250
+dataset_reference = 38
+
+dataset = "AEC-DGI305"
+
+args.training_set_path = f'../ConnectingPoints/split/{dataset}--{dataset_reference}--incremental--mediapipe-Train.hdf5'
+args.validation_set_path = f'../ConnectingPoints/split/{dataset}--{dataset_reference}--incremental--mediapipe-Val.hdf5'
+
+args.epochs = 1000
 args.lr = 0.00005
 
 PROJECT_WANDB = "incremental_spoter"
 ENTITY = "joenatan30" 
 TAG = ["No_freezing",f'prev_{args.prev_num_classes}',f'new_{args.new_num_classes}', args.model_type]
-args.experiment_name = f'add_dimention_without_freezing_{args.prev_num_classes}_{args.new_num_classes}'
+args.experiment_name = f'add_spoter_{args.prev_num_classes}_{args.new_num_classes}'
 
 run = wandb.init(project=PROJECT_WANDB, 
                  entity=ENTITY,
@@ -68,15 +76,15 @@ model = incremental_model_type(args)
 # DATA LOADER
 # Training set
 transform = transforms.Compose([GaussianNoise(args.gaussian_mean, args.gaussian_std)])
-train_set = LSP_Dataset(args.training_set_path, transform=transform, have_aumentation=True, keypoints_model='mediapipe')
+train_set = LSP_Dataset(args.training_set_path, words=words, transform=transform, have_aumentation=True, keypoints_model='mediapipe')
 
 # Validation set
-val_set = LSP_Dataset(args.validation_set_path, keypoints_model='mediapipe', have_aumentation=False)
+val_set = LSP_Dataset(args.validation_set_path, words=words, keypoints_model='mediapipe', have_aumentation=False)
 val_loader = DataLoader(val_set, shuffle=True, generator=g)
 
 # Testing set
 if args.testing_set_path:
-    eval_set = LSP_Dataset(args.testing_set_path, keypoints_model='mediapipe')
+    eval_set = LSP_Dataset(args.testing_set_path, words=words, keypoints_model='mediapipe')
     eval_loader = DataLoader(eval_set, shuffle=True, generator=g)
 
 else:
@@ -176,7 +184,7 @@ for epoch in range(epoch_start, args.epochs):
     lr_progress.append(sgd_optimizer.param_groups[0]["lr"])
 
 # MARK: TESTING
-
+'''
 print("\nTesting checkpointed models starting...\n")
 
 top_result, top_result_name = 0, ""
@@ -197,4 +205,4 @@ if eval_loader:
 
     print("\nThe top result was recorded at " + str(top_result) + " testing accuracy. The best checkpoint is " + top_result_name + ".")
   
-  
+  '''
