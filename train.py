@@ -40,26 +40,31 @@ torch.backends.cudnn.deterministic = True
 g = torch.Generator()
 g.manual_seed(args.seed)
 
-df_words = pd.read_csv("./incrementalList.csv",encoding='utf-8', header=None)
+version = 1
+
+df_words = pd.read_csv(f"./incrementalListV{version}.csv",encoding='utf-8', header=None)
 words = list(df_words[0])
 
-args.prev_num_classes = 38
-args.new_num_classes = len(words)
+args.prev_num_classes = 20
+args.new_num_classes = 40
 
-dataset_reference = 38
+words = words[:args.new_num_classes]
 
-dataset = "AEC-DGI305"
+dataset_reference = 60
+max_patience = 100
 
-args.training_set_path = f'../ConnectingPoints/split/{dataset}--{dataset_reference}--incremental--mediapipe-Train.hdf5'
-args.validation_set_path = f'../ConnectingPoints/split/{dataset}--{dataset_reference}--incremental--mediapipe-Val.hdf5'
+dataset = "DGI305-AEC"
+
+args.training_set_path = f'../ConnectingPoints/split/{dataset}--{dataset_reference}--incremental--mediapipe--V{version}-Train.hdf5'
+args.validation_set_path = f'../ConnectingPoints/split/{dataset}--{dataset_reference}--incremental--mediapipe--V{version}-Val.hdf5'
 
 args.epochs = 1000
 args.lr = 0.00005
 
-PROJECT_WANDB = "incremental_spoter"
+PROJECT_WANDB = "incremental_learning_SIMBig"
 ENTITY = "joenatan30" 
-TAG = ["No_freezing",f'prev_{args.prev_num_classes}',f'new_{args.new_num_classes}', args.model_type]
-args.experiment_name = f'add_spoter_{args.prev_num_classes}_{args.new_num_classes}'
+TAG = ["No_freezing",f'prev_{args.prev_num_classes}',f'new_{args.new_num_classes}', args.model_type, f'V{version}']
+args.experiment_name = f'add_spoter_{args.prev_num_classes}_{args.new_num_classes}_V{version}'
 
 run = wandb.init(project=PROJECT_WANDB, 
                  entity=ENTITY,
@@ -122,8 +127,13 @@ checkpoint_index = 0
 model.train(True)
 model.to(device)
 
-for epoch in range(epoch_start, args.epochs):
+patience = 0
 
+for epoch in range(epoch_start, args.epochs):
+    
+    if patience == max_patience:
+        break
+    
     train_loss, _, _, train_acc = train_epoch(model, train_loader, cel_criterion, sgd_optimizer, device)
     losses.append(train_loss.item())
     train_accs.append(train_acc)
@@ -142,10 +152,12 @@ for epoch in range(epoch_start, args.epochs):
             'val_loss':val_loss,
             'epoch': epoch
         })
-
+    patience = patience + 1
     # Save checkpoints if they are best in the current subset
     if args.save_checkpoints:
         if val_acc > top_val_acc:
+
+            patience = 0
 
             top_val_acc = val_acc
 
@@ -173,7 +185,7 @@ for epoch in range(epoch_start, args.epochs):
 
         if val_loader:
             print("[" + str(epoch + 1) + "] VALIDATION  loss: " + str(val_loss.item()) + " acc: " + str(val_acc) + " top-5(acc): " + str(val_acc_top5))
-
+        print("Patience:",patience)
         print("")
 
     # Reset the top accuracies on static subsets

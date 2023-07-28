@@ -321,6 +321,8 @@ def get_dataset_from_hdf5(path,keypoints_model,words,landmarks_ref,keypoints_num
 
     # print("video info shape:",len(video_info))
 
+
+
     del data
     gc.collect()
     
