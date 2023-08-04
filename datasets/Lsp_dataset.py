@@ -187,7 +187,7 @@ def normalize_pose_hands_function(data, body_section, body_part):
 
     assert len(pose) > 0 and len(leftHand) > 0 and len(rightHand) > 0 #and len(face) > 0
 
-    prepare_keypoints_image(data[2][0][leftHand+rightHand+pose,:],"before")
+    #prepare_keypoints_image(data[2][0][leftHand+rightHand+pose,:],"before")
 
     for index_video in range(len(data)):
         data[index_video][:,pose,:] = normalize_pose(data[index_video][:,pose,:], body_section_dict)
@@ -195,7 +195,7 @@ def normalize_pose_hands_function(data, body_section, body_part):
         data[index_video][:,leftHand,:] = normalize_hand(data[index_video][:,leftHand,:], body_section_dict)
         data[index_video][:,rightHand,:] = normalize_hand(data[index_video][:,rightHand,:], body_section_dict)
 
-    prepare_keypoints_image(data[2][0][leftHand+rightHand+pose,:],"after")
+    #prepare_keypoints_image(data[2][0][leftHand+rightHand+pose,:],"after")
 
     kp_bp_index = {'pose':pose,
                    'left_hand':leftHand,

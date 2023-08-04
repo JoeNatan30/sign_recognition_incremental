@@ -4,6 +4,8 @@ import torch
 import csv
 import wandb
 
+import torch.functional as F
+
 def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None):
 
     pred_correct, pred_all = 0, 0
@@ -76,6 +78,111 @@ def evaluate(model, dataloader, cel_criterion, device, print_stats=False):
         logging.info(str(stats) + "\n")
 
     return running_loss/data_length, pred_correct, pred_all, (pred_correct / pred_all), (pred_top_5 / pred_all)
+
+
+###########################################################################
+#
+# DISTILLATION TRAIN
+#
+######################################
+def cross_distillation_loss(outputs, old_outputs, alpha, T):
+    # Compute the distilling loss on old classes based on the modified cross-distillation loss equation
+    p_old = F.softmax(old_outputs / T, dim=1)
+    p_new = F.softmax(outputs / T, dim=1)
+    loss_distillation = torch.mean(-torch.sum(p_old * torch.log(p_new), dim=1))
+    return alpha * loss_distillation
+
+def train_distillation_epoch(model_teacher, model_student, dataloader, criterion, optimizer, alpha, T, device, scheduler=None):
+
+
+
+    pred_correct, pred_all = 0, 0
+    running_loss = 0.0
+
+    data_length = len(dataloader)
+
+    for i, data in enumerate(dataloader):
+        inputs, labels, _ = data
+        inputs = inputs.squeeze(0).to(device)
+        labels = labels.to(device, dtype=torch.long)
+
+        optimizer.zero_grad()
+        outputs_teacher = model_teacher(inputs).expand(1, -1, -1)
+        outputs_student = model_student(inputs).expand(1, -1, -1)
+
+        distillation_loss = cross_distillation_loss(outputs_student[0], outputs_teacher[0])
+        crossEntropy_loss = criterion(outputs_student[0], labels[0])
+
+        loss = alpha * distillation_loss + (1 - alpha) * crossEntropy_loss
+
+        loss.backward()
+
+        optimizer.step()
+        running_loss += loss
+
+        # Statistics
+        if int(torch.argmax(torch.nn.functional.softmax(outputs, dim=2))) == int(labels[0][0]):
+            pred_correct += 1
+        pred_all += 1
+
+    if scheduler:
+        #scheduler.step(running_loss.item() / len(dataloader))
+        scheduler.step()
+
+    return running_loss/data_length, pred_correct, pred_all, (pred_correct / pred_all)
+
+###########################################################################
+#
+# DISTILLATION EVALUATIONS
+#
+######################################
+
+def evaluate_distillation(model_teacher, model_student, dataloader, cel_criterion, alpha, T, device, print_stats=False):
+
+    pred_correct, pred_top_5,  pred_all = 0, 0, 0
+    running_loss = 0.0
+    
+    stats = {i: [0, 0] for i in range(302)}
+
+    data_length = len(dataloader)
+
+    k = 5 # top 5 (acc)
+
+    for i, data in enumerate(dataloader):
+        inputs, labels, _ = data
+        inputs = inputs.squeeze(0).to(device)
+        labels = labels.to(device, dtype=torch.long)
+        #print(f"iteration {i} in evaluate")
+        outputs_teacher = model_teacher(inputs).expand(1, -1, -1)
+        outputs_student = model_student(inputs).expand(1, -1, -1)
+
+        distillation_loss = cross_distillation_loss(outputs_student[0], outputs_teacher[0])
+        crossEntropy_loss = cel_criterion(outputs_student[0], labels[0])
+
+        loss = alpha * distillation_loss + (1 - alpha) * crossEntropy_loss
+
+        running_loss += loss
+
+        # Statistics
+        if int(torch.argmax(torch.nn.functional.softmax(outputs_student, dim=2))) == int(labels[0][0]):
+            stats[int(labels[0][0])][0] += 1
+            pred_correct += 1
+        
+        if int(labels[0][0]) in torch.topk(torch.reshape(outputs_student, (-1,)), k).indices.tolist():
+            pred_top_5 += 1
+
+        stats[int(labels[0][0])][1] += 1
+        pred_all += 1
+
+    if print_stats:
+        stats = {key: value[0] / value[1] for key, value in stats.items() if value[1] != 0}
+        print("Label accuracies statistics:")
+        print(str(stats) + "\n")
+        logging.info("Label accuracies statistics:")
+        logging.info(str(stats) + "\n")
+
+    return running_loss/data_length, pred_correct, pred_all, (pred_correct / pred_all), (pred_top_5 / pred_all), str(stats)
+
 
 
 def evaluate_top_k(model, dataloader, device, k=5):

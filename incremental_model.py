@@ -33,13 +33,23 @@ def incremental_model_type(args):
         model.pretrained_model.linear_class.weight.data[: args.prev_num_classes] = pretrained_weights
         model.pretrained_model.linear_class.bias.data[: args.prev_num_classes] = pretrained_biases
         '''
-    elif args.model_type == "linear":
+        return model
+    elif args.model_type == "distillation":
 
         #model = simpleSpoter(args.prev_num_classes)
-        model = spoter_model.SPOTER(args.prev_num_classes, hidden_dim=54*2)
+        model_1 = spoter_model.SPOTER(args.prev_num_classes, hidden_dim=54*2)
+        model_2 = spoter_model.SPOTER(args.prev_num_classes, hidden_dim=54*2)
         
         checkpoint = torch.load(f'checkpoint_{args.model_type}_model.pth')
-        model.load_state_dict(checkpoint['model_state_dict'])
+        model_1.load_state_dict(checkpoint['model_state_dict'])
+        model_2.load_state_dict(checkpoint['model_state_dict'])
 
+        pretrained_weights = model_1.linear_class.weight.data
+        pretrained_biases = model_1.linear_class.bias.data
+        model_2.linear_class = nn.Linear(model.linear_class.in_features, args.new_num_classes)
+        model_2.linear_class.weight.data[: args.prev_num_classes] = pretrained_weights
+        model_2.linear_class.bias.data[: args.prev_num_classes] = pretrained_biases
 
-    return model
+        return model_1, model_2
+
+    
