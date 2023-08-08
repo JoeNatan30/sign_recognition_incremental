@@ -203,9 +203,47 @@ def normalize_pose_hands_function(data, body_section, body_part):
 
     return data, kp_bp_index, body_section_dict
 
+def limitIntancesPerClass(videos, labels, num_labels, video_names, limit_type="fixed", maximun=10000):
+        
+    dict_class = {_num_label:[] for _num_label in set(num_labels)}
 
-def get_dataset_from_hdf5(path,keypoints_model,words,landmarks_ref,keypoints_number,threshold_frecuency_labels=10,list_labels_banned=[],dict_labels_dataset=None,
-                         inv_dict_labels_dataset=None):
+    for pos, _num_label in enumerate(num_labels):
+        dict_class[_num_label].append(pos)
+
+    for _num_label in set(num_labels):
+        if limit_type == "fixed": 
+            dict_class[_num_label] = dict_class[_num_label][:maximun]
+        elif limit_type == "fixed_with_old":
+            total = len(set(num_labels))
+            increment_ref = 20
+            _value = total//increment_ref - _num_label//increment_ref
+
+            minimun = (_value-1)*increment_ref
+            maximun = (_value)*increment_ref
+            dict_class[_num_label] = dict_class[_num_label][minimun:maximun]
+
+        else:
+            dict_class[_num_label] = dict_class[_num_label]
+
+    ind_list = [ind for values in dict_class.values() for ind in values]
+
+    for pos in range(len(labels)-1, -1, -1):
+        if pos not in ind_list:
+            labels.pop(pos)
+            video_names.pop(pos)
+            num_labels.pop(pos)
+            videos.pop(pos)
+
+    return videos, labels, num_labels, video_names
+
+def get_dataset_from_hdf5(path,keypoints_model,words,landmarks_ref,keypoints_number,
+                          threshold_frecuency_labels=10,
+                          list_labels_banned=[],
+                          dict_labels_dataset=None,
+                          inv_dict_labels_dataset=None,
+                          limit_type="fixed",
+                          maximun=10000):
+
     print('path                       :',path)
     print('keypoints_model            :',keypoints_model)
     print('landmarks_ref              :',landmarks_ref)
@@ -322,6 +360,14 @@ def get_dataset_from_hdf5(path,keypoints_model,words,landmarks_ref,keypoints_num
     # print("video info shape:",len(video_info))
 
 
+    video_dataset, labels_dataset, num_labels_dataset, video_name_dataset = limitIntancesPerClass(video_dataset, 
+                                                                                                  labels_dataset,
+                                                                                                  num_labels_dataset,
+                                                                                                  video_name_dataset,
+                                                                                                  limit_type,
+                                                                                                  maximun)
+
+
 
     del data
     gc.collect()
@@ -353,7 +399,8 @@ class LSP_Dataset(Dataset):
 
     def __init__(self, dataset_filename: str,keypoints_model:str, words=None, transform=None, have_aumentation=True,
                  augmentations_prob=0.5, normalize=False,landmarks_ref= 'Mapeo landmarks librerias.csv',
-                dict_labels_dataset=None,inv_dict_labels_dataset=None, keypoints_number = 54):
+                dict_labels_dataset=None,inv_dict_labels_dataset=None, keypoints_number = 54,
+                limit_type="fixed", maximun=10000):
         """
         Initiates the HPOESDataset with the pre-loaded data from the h5 file.
 
@@ -389,7 +436,9 @@ class LSP_Dataset(Dataset):
                                                                                                                                        threshold_frecuency_labels =0,
                                                                                                                                        list_labels_banned =self.list_labels_banned,
                                                                                                                                        dict_labels_dataset=dict_labels_dataset,
-                                                                                                                                       inv_dict_labels_dataset=inv_dict_labels_dataset)
+                                                                                                                                       inv_dict_labels_dataset=inv_dict_labels_dataset,
+                                                                                                                                       limit_type=limit_type, 
+                                                                                                                                       maximun=maximun)
         # HAND AND POSE NORMALIZATION
         video_dataset, keypoint_body_part_index, body_section_dict = normalize_pose_hands_function(video_dataset, body_section, body_part)
 
@@ -407,7 +456,7 @@ class LSP_Dataset(Dataset):
         self.inv_dict_labels_dataset = inv_dict_labels_dataset
         
         self.have_aumentation = have_aumentation
-        print(keypoint_body_part_index, body_section_dict)
+        #print(keypoint_body_part_index, body_section_dict)
         self.augmentation = augmentations.augmentation(keypoint_body_part_index, body_section_dict)
         self.augmentations_prob = augmentations_prob
         self.normalize = normalize

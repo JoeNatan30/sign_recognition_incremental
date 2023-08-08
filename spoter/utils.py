@@ -4,7 +4,7 @@ import torch
 import csv
 import wandb
 
-import torch.functional as F
+import torch.nn.functional as F
 
 def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None):
 
@@ -43,7 +43,7 @@ def evaluate(model, dataloader, cel_criterion, device, print_stats=False):
     pred_correct, pred_top_5,  pred_all = 0, 0, 0
     running_loss = 0.0
     
-    stats = {i: [0, 0] for i in range(302)}
+    stats = {i: [0, 0] for i in range(300)}
 
     data_length = len(dataloader)
 
@@ -61,13 +61,13 @@ def evaluate(model, dataloader, cel_criterion, device, print_stats=False):
 
         # Statistics
         if int(torch.argmax(torch.nn.functional.softmax(outputs, dim=2))) == int(labels[0][0]):
-            stats[int(labels[0][0])][0] += 1
+            stats[int(labels[0][0].item())][0] += 1
             pred_correct += 1
         
         if int(labels[0][0]) in torch.topk(torch.reshape(outputs, (-1,)), k).indices.tolist():
             pred_top_5 += 1
 
-        stats[int(labels[0][0])][1] += 1
+        stats[int(labels[0][0].item())][1] += 1
         pred_all += 1
 
     if print_stats:
@@ -77,7 +77,7 @@ def evaluate(model, dataloader, cel_criterion, device, print_stats=False):
         logging.info("Label accuracies statistics:")
         logging.info(str(stats) + "\n")
 
-    return running_loss/data_length, pred_correct, pred_all, (pred_correct / pred_all), (pred_top_5 / pred_all)
+    return running_loss/data_length, pred_correct, pred_all, (pred_correct / pred_all), (pred_top_5 / pred_all), stats
 
 
 ###########################################################################
@@ -87,14 +87,14 @@ def evaluate(model, dataloader, cel_criterion, device, print_stats=False):
 ######################################
 def cross_distillation_loss(outputs, old_outputs, alpha, T):
     # Compute the distilling loss on old classes based on the modified cross-distillation loss equation
+
     p_old = F.softmax(old_outputs / T, dim=1)
     p_new = F.softmax(outputs / T, dim=1)
-    loss_distillation = torch.mean(-torch.sum(p_old * torch.log(p_new), dim=1))
+
+    loss_distillation = torch.mean(-torch.sum(p_old * torch.log(p_new[:,:p_old.shape[1]]), dim=1))
     return alpha * loss_distillation
 
 def train_distillation_epoch(model_teacher, model_student, dataloader, criterion, optimizer, alpha, T, device, scheduler=None):
-
-
 
     pred_correct, pred_all = 0, 0
     running_loss = 0.0
@@ -110,7 +110,7 @@ def train_distillation_epoch(model_teacher, model_student, dataloader, criterion
         outputs_teacher = model_teacher(inputs).expand(1, -1, -1)
         outputs_student = model_student(inputs).expand(1, -1, -1)
 
-        distillation_loss = cross_distillation_loss(outputs_student[0], outputs_teacher[0])
+        distillation_loss = cross_distillation_loss(outputs_student[0], outputs_teacher[0], alpha, T)
         crossEntropy_loss = criterion(outputs_student[0], labels[0])
 
         loss = alpha * distillation_loss + (1 - alpha) * crossEntropy_loss
@@ -121,7 +121,7 @@ def train_distillation_epoch(model_teacher, model_student, dataloader, criterion
         running_loss += loss
 
         # Statistics
-        if int(torch.argmax(torch.nn.functional.softmax(outputs, dim=2))) == int(labels[0][0]):
+        if int(torch.argmax(torch.nn.functional.softmax(outputs_student, dim=2))) == int(labels[0][0]):
             pred_correct += 1
         pred_all += 1
 
@@ -156,7 +156,8 @@ def evaluate_distillation(model_teacher, model_student, dataloader, cel_criterio
         outputs_teacher = model_teacher(inputs).expand(1, -1, -1)
         outputs_student = model_student(inputs).expand(1, -1, -1)
 
-        distillation_loss = cross_distillation_loss(outputs_student[0], outputs_teacher[0])
+        distillation_loss = cross_distillation_loss(outputs_student[0], outputs_teacher[0], alpha, T)
+
         crossEntropy_loss = cel_criterion(outputs_student[0], labels[0])
 
         loss = alpha * distillation_loss + (1 - alpha) * crossEntropy_loss
@@ -181,7 +182,7 @@ def evaluate_distillation(model_teacher, model_student, dataloader, cel_criterio
         logging.info("Label accuracies statistics:")
         logging.info(str(stats) + "\n")
 
-    return running_loss/data_length, pred_correct, pred_all, (pred_correct / pred_all), (pred_top_5 / pred_all), str(stats)
+    return running_loss/data_length, pred_correct, pred_all, (pred_correct / pred_all), (pred_top_5 / pred_all), stats
 
 
 
@@ -313,4 +314,11 @@ def generate_csv_result(run, model, dataloader, folder_path, meaning, device):
     #artifact = wandb.Artifact(f'predicciones_{run.id}.csv', type='dataset')
     #artifact.add_file(full_path)
     #run.log_artifact(artifact)
+    wandb.save(full_path)
+
+
+def generate_csv_accuracy(df_stats, folder_path):
+
+    full_path = folder_path+'/accuracy.csv'
+    df_stats.to_csv(full_path, index=False, encoding='utf-8')
     wandb.save(full_path)

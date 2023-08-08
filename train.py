@@ -17,8 +17,8 @@ import pandas as pd
 from datasets.Lsp_dataset import LSP_Dataset
 from spoter.gaussian_noise import GaussianNoise
 from parser_default import get_default_args
-from spoter.utils import train_epoch, evaluate, generate_csv_result
-
+from spoter.utils import train_epoch, evaluate
+from spoter.utils import generate_csv_result, generate_csv_accuracy
 from incremental_model import incremental_model_type
 
 parser = get_default_args()
@@ -40,31 +40,44 @@ torch.backends.cudnn.deterministic = True
 g = torch.Generator()
 g.manual_seed(args.seed)
 
-version = 1
+version = 3
 
-df_words = pd.read_csv(f"./incrementalListV{version}.csv",encoding='utf-8', header=None)
+args.model_type = "simple_old"#"simple"#"fixed_linear"
+dataset = "DGI305-AEC"
+limit_type = "fixed_with_old"#"fixed_with_old" #"fixed"
+previous_model_type = "simple"#"simple"#"fixed_linear"#"base"
+maximun_train = 12
+maximun_val = 3
+
+args.dataset_reference = 60
+
+args.prev_num_classes = 40
+args.new_num_classes = 60
+
+df_words = pd.read_csv(f"./incrementalList_V{version}.csv",encoding='utf-8', header=None)
 words = list(df_words[0])
 
-args.prev_num_classes = 20
-args.new_num_classes = 40
+all_words = words[:args.new_num_classes]
+new_words = words[args.prev_num_classes:args.new_num_classes]
+old_words = words[:args.prev_num_classes]
 
-words = words[:args.new_num_classes]
+max_patience = 200
 
-dataset_reference = 60
-max_patience = 100
+if previous_model_type == "base":
+    args.load_model_from = f"{previous_model_type}_spoter_{args.prev_num_classes}_{args.prev_num_classes}_V{version}/"
+else:
+    args.load_model_from = f"{previous_model_type}_spoter_{args.new_num_classes - args.prev_num_classes}_{args.prev_num_classes}_V{version}/"
 
-dataset = "DGI305-AEC"
-
-args.training_set_path = f'../ConnectingPoints/split/{dataset}--{dataset_reference}--incremental--mediapipe--V{version}-Train.hdf5'
-args.validation_set_path = f'../ConnectingPoints/split/{dataset}--{dataset_reference}--incremental--mediapipe--V{version}-Val.hdf5'
+args.training_set_path = f'../ConnectingPoints/split/{dataset}--{args.dataset_reference}--incremental--mediapipe--V{version}-Train.hdf5'
+args.validation_set_path = f'../ConnectingPoints/split/{dataset}--{args.dataset_reference}--incremental--mediapipe--V{version}-Val.hdf5'
 
 args.epochs = 1000
 args.lr = 0.00005
 
-PROJECT_WANDB = "incremental_learning_SIMBig"
+PROJECT_WANDB = "SIMBig_incremental_learning"
 ENTITY = "joenatan30" 
 TAG = ["No_freezing",f'prev_{args.prev_num_classes}',f'new_{args.new_num_classes}', args.model_type, f'V{version}']
-args.experiment_name = f'add_spoter_{args.prev_num_classes}_{args.new_num_classes}_V{version}'
+args.experiment_name = f'{args.model_type}_spoter_{args.prev_num_classes}_{args.new_num_classes}_V{version}'
 
 run = wandb.init(project=PROJECT_WANDB, 
                  entity=ENTITY,
@@ -81,16 +94,25 @@ model = incremental_model_type(args)
 # DATA LOADER
 # Training set
 transform = transforms.Compose([GaussianNoise(args.gaussian_mean, args.gaussian_std)])
-train_set = LSP_Dataset(args.training_set_path, words=words, transform=transform, have_aumentation=True, keypoints_model='mediapipe')
+if args.prev_num_classes == args.new_num_classes:
+    train_set = LSP_Dataset(args.training_set_path, words=old_words, transform=transform, have_aumentation=True, keypoints_model='mediapipe',
+                        limit_type=limit_type, maximun=maximun_train)
+elif limit_type == "fixed_with_old":
+    train_set = LSP_Dataset(args.training_set_path, words=all_words, transform=transform, have_aumentation=True, keypoints_model='mediapipe',
+                        limit_type=limit_type, maximun=maximun_train)
+else:
+    train_set = LSP_Dataset(args.training_set_path, words=new_words, transform=transform, have_aumentation=True, keypoints_model='mediapipe',
+                            limit_type=limit_type, maximun=maximun_train)
 
 # Validation set
-val_set = LSP_Dataset(args.validation_set_path, words=words, keypoints_model='mediapipe', have_aumentation=False)
-val_loader = DataLoader(val_set, shuffle=True, generator=g)
+val_set = LSP_Dataset(args.validation_set_path, words=all_words, keypoints_model='mediapipe', have_aumentation=False,
+                      limit_type="fixed", maximun=maximun_val)
+val_loader = DataLoader(val_set, shuffle=False, generator=g)
 
 # Testing set
 if args.testing_set_path:
     eval_set = LSP_Dataset(args.testing_set_path, words=words, keypoints_model='mediapipe')
-    eval_loader = DataLoader(eval_set, shuffle=True, generator=g)
+    eval_loader = DataLoader(eval_set, shuffle=False, generator=g)
 
 else:
     eval_loader = None
@@ -140,7 +162,7 @@ for epoch in range(epoch_start, args.epochs):
 
     if val_loader:
         model.train(False)
-        val_loss, _, _, val_acc, val_acc_top5 = evaluate(model, val_loader, cel_criterion, device)
+        val_loss, _, _, val_acc, val_acc_top5, stats = evaluate(model, val_loader, cel_criterion, device)
         model.train(True)
         val_accs.append(val_acc)
         val_accs_top5.append(val_acc_top5)
@@ -156,6 +178,16 @@ for epoch in range(epoch_start, args.epochs):
     # Save checkpoints if they are best in the current subset
     if args.save_checkpoints:
         if val_acc > top_val_acc:
+            print(stats)
+            print(val_set.inv_dict_labels_dataset)
+            stats = {val_set.inv_dict_labels_dataset[k]:v for k,v in stats.items() if k < args.new_num_classes}
+            
+            df_stats = pd.DataFrame(stats.items(), columns=['clase', 'Aciertos_Total'])
+            df_stats[['Aciertos', 'Total']] = pd.DataFrame(df_stats['Aciertos_Total'].tolist(), index=df_stats.index)
+            df_stats.drop(columns=['Aciertos_Total'], inplace=True)
+            df_stats['Accuracy'] = df_stats['Aciertos'] / df_stats['Total']
+            
+            print(df_stats)
 
             patience = 0
 
@@ -168,14 +200,15 @@ for epoch in range(epoch_start, args.epochs):
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': sgd_optimizer.state_dict(),
                 'loss': train_loss
-            }, model_save_folder_path + f'/checkpoint_{args.model_type}_model.pth')
+            }, model_save_folder_path + f'/checkpoint_model.pth')
             
             generate_csv_result(run, model, val_loader, model_save_folder_path, val_set.inv_dict_labels_dataset, device)
+            generate_csv_accuracy(df_stats, model_save_folder_path)
 
             artifact = wandb.Artifact(f'best-model_{args.prev_num_classes}_{args.new_num_classes}_{run.id}.pth', type='model')
-            artifact.add_file(model_save_folder_path + f'/checkpoint_{args.model_type}_model.pth')
+            artifact.add_file(model_save_folder_path + f'/checkpoint_model.pth')
             run.log_artifact(artifact)
-            wandb.save(model_save_folder_path + f'/checkpoint_{args.model_type}_model.pth')
+            wandb.save(model_save_folder_path + f'/checkpoint_model.pth')
 
             checkpoint_index += 1
 
