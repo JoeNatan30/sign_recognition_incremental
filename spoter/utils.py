@@ -85,14 +85,14 @@ def evaluate(model, dataloader, cel_criterion, device, print_stats=False):
 # DISTILLATION TRAIN
 #
 ######################################
-def cross_distillation_loss(outputs, old_outputs, alpha, T):
+def cross_distillation_loss(outputs, old_outputs, T):
     # Compute the distilling loss on old classes based on the modified cross-distillation loss equation
 
     p_old = F.softmax(old_outputs / T, dim=1)
     p_new = F.softmax(outputs / T, dim=1)
 
     loss_distillation = torch.mean(-torch.sum(p_old * torch.log(p_new[:,:p_old.shape[1]]), dim=1))
-    return alpha * loss_distillation
+    return loss_distillation
 
 def train_distillation_epoch(model_teacher, model_student, dataloader, criterion, optimizer, alpha, T, device, scheduler=None):
 
@@ -110,7 +110,7 @@ def train_distillation_epoch(model_teacher, model_student, dataloader, criterion
         outputs_teacher = model_teacher(inputs).expand(1, -1, -1)
         outputs_student = model_student(inputs).expand(1, -1, -1)
 
-        distillation_loss = cross_distillation_loss(outputs_student[0], outputs_teacher[0], alpha, T)
+        distillation_loss = cross_distillation_loss(outputs_student[0], outputs_teacher[0], T)
         crossEntropy_loss = criterion(outputs_student[0], labels[0])
 
         loss = alpha * distillation_loss + (1 - alpha) * crossEntropy_loss
@@ -156,7 +156,7 @@ def evaluate_distillation(model_teacher, model_student, dataloader, cel_criterio
         outputs_teacher = model_teacher(inputs).expand(1, -1, -1)
         outputs_student = model_student(inputs).expand(1, -1, -1)
 
-        distillation_loss = cross_distillation_loss(outputs_student[0], outputs_teacher[0], alpha, T)
+        distillation_loss = cross_distillation_loss(outputs_student[0], outputs_teacher[0], T)
 
         crossEntropy_loss = cel_criterion(outputs_student[0], labels[0])
 

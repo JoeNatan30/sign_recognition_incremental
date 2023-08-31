@@ -311,6 +311,7 @@ def get_dataset_from_hdf5(path,keypoints_model,words,landmarks_ref,keypoints_num
         data_video = np.array(data[index]['data'])
         data_label = np.array(data[index]['label']).item().decode('utf-8')
         data_num_label = int(np.array(data[index]['class_number']))
+        
         # F x C x K  (frames, coords, keypoitns)
         n_frames, n_axis, n_keypoints = data_video.shape
 

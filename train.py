@@ -18,6 +18,7 @@ from datasets.Lsp_dataset import LSP_Dataset
 from spoter.gaussian_noise import GaussianNoise
 from parser_default import get_default_args
 from spoter.utils import train_epoch, evaluate
+from spoter.utils import train_distillation_epoch, evaluate_distillation
 from spoter.utils import generate_csv_result, generate_csv_accuracy
 from incremental_model import incremental_model_type
 
@@ -40,21 +41,18 @@ torch.backends.cudnn.deterministic = True
 g = torch.Generator()
 g.manual_seed(args.seed)
 
-version = 3
+dict_input = args.word_list_path
+version = int(os.path.splitext(os.path.basename(dict_input))[0].split('_')[-1][1:])
+print(version) 
 
-args.model_type = "simple_old"#"simple"#"fixed_linear"
+#args.model_type = "simple"#"simple"#"fixed_linear"
 dataset = "DGI305-AEC"
-limit_type = "fixed_with_old"#"fixed_with_old" #"fixed"
-previous_model_type = "simple"#"simple"#"fixed_linear"#"base"
+limit_type = "fixed"#"fixed_with_old" #"fixed"
+#previous_model_type = "simple"#"simple"#"fixed_linear"#"base"
 maximun_train = 12
 maximun_val = 3
 
-args.dataset_reference = 60
-
-args.prev_num_classes = 40
-args.new_num_classes = 60
-
-df_words = pd.read_csv(f"./incrementalList_V{version}.csv",encoding='utf-8', header=None)
+df_words = pd.read_csv(args.word_list_path, encoding='utf-8', header=None)
 words = list(df_words[0])
 
 all_words = words[:args.new_num_classes]
@@ -62,14 +60,13 @@ new_words = words[args.prev_num_classes:args.new_num_classes]
 old_words = words[:args.prev_num_classes]
 
 max_patience = 200
+alpha = args.prev_num_classes / args.new_num_classes # old / total
+T = 2
 
-if previous_model_type == "base":
-    args.load_model_from = f"{previous_model_type}_spoter_{args.prev_num_classes}_{args.prev_num_classes}_V{version}/"
+if args.previous_model_type == "Base":
+    args.load_model_from = f"{args.previous_model_type}_spoter_{args.prev_num_classes}_{args.prev_num_classes}_V{version}/"
 else:
-    args.load_model_from = f"{previous_model_type}_spoter_{args.new_num_classes - args.prev_num_classes}_{args.prev_num_classes}_V{version}/"
-
-args.training_set_path = f'../ConnectingPoints/split/{dataset}--{args.dataset_reference}--incremental--mediapipe--V{version}-Train.hdf5'
-args.validation_set_path = f'../ConnectingPoints/split/{dataset}--{args.dataset_reference}--incremental--mediapipe--V{version}-Val.hdf5'
+    args.load_model_from = f"{args.previous_model_type}_spoter_{args.new_num_classes - args.prev_num_classes}_{args.prev_num_classes}_V{version}/"
 
 args.epochs = 1000
 args.lr = 0.00005
@@ -79,17 +76,20 @@ ENTITY = "joenatan30"
 TAG = ["No_freezing",f'prev_{args.prev_num_classes}',f'new_{args.new_num_classes}', args.model_type, f'V{version}']
 args.experiment_name = f'{args.model_type}_spoter_{args.prev_num_classes}_{args.new_num_classes}_V{version}'
 
-run = wandb.init(project=PROJECT_WANDB, 
+run = wandb.init(project=PROJECT_WANDB,
                  entity=ENTITY,
-                 config=args, 
-                 name=args.experiment_name, 
+                 config=args,
+                 name=args.experiment_name,
                  job_type="model-training",
                  tags=TAG)
 
 config = wandb.config
 wandb.watch_called = False
 
-model = incremental_model_type(args)
+if args.model_type == "Weighted":
+    model_teacher, model_student = incremental_model_type(args)
+else:
+    model = incremental_model_type(args)
 
 # DATA LOADER
 # Training set
@@ -97,16 +97,16 @@ transform = transforms.Compose([GaussianNoise(args.gaussian_mean, args.gaussian_
 if args.prev_num_classes == args.new_num_classes:
     train_set = LSP_Dataset(args.training_set_path, words=old_words, transform=transform, have_aumentation=True, keypoints_model='mediapipe',
                         limit_type=limit_type, maximun=maximun_train)
-elif limit_type == "fixed_with_old":
+elif limit_type == "Fixed_with_old":
     train_set = LSP_Dataset(args.training_set_path, words=all_words, transform=transform, have_aumentation=True, keypoints_model='mediapipe',
                         limit_type=limit_type, maximun=maximun_train)
 else:
     train_set = LSP_Dataset(args.training_set_path, words=new_words, transform=transform, have_aumentation=True, keypoints_model='mediapipe',
-                            limit_type=limit_type, maximun=maximun_train)
+                        limit_type=limit_type, maximun=maximun_train)
 
 # Validation set
 val_set = LSP_Dataset(args.validation_set_path, words=all_words, keypoints_model='mediapipe', have_aumentation=False,
-                      limit_type="fixed", maximun=maximun_val)
+                      limit_type="Fixed", maximun=maximun_val)
 val_loader = DataLoader(val_set, shuffle=False, generator=g)
 
 # Testing set
@@ -121,7 +121,11 @@ train_loader = DataLoader(train_set, shuffle=True, generator=g)
 
 #class_weight = torch.FloatTensor([1/train_set.label_freq[i] for i in range(args.new_num_classes)]).to(device)
 cel_criterion = nn.CrossEntropyLoss(label_smoothing=0.1)#, weight=class_weight)
-sgd_optimizer = optim.SGD(model.parameters(), lr=args.lr)
+
+if args.model_type == "Weighted":
+    sgd_optimizer = optim.SGD(model_student.parameters(), lr=args.lr)
+else:
+    sgd_optimizer = optim.SGD(model.parameters(), lr=args.lr)
 
 epoch_start = 0
 
@@ -133,7 +137,10 @@ Path("out-img/").mkdir(parents=True, exist_ok=True)
 print("#"*50)
 print("#"*30)
 print("#"*10)
-print("Num Trainable Params: ", sum(p.numel() for p in model.parameters() if p.requires_grad))
+if args.model_type == "Weighted":
+    print("Num Trainable Params: ", sum(p.numel() for p in model_student.parameters() if p.requires_grad))
+else:
+    print("Num Trainable Params: ", sum(p.numel() for p in model.parameters() if p.requires_grad))
 print("#"*10)
 print("#"*30)
 print("#"*50)
@@ -146,24 +153,44 @@ lr_progress = []
 top_train_acc, top_val_acc = 0, 0
 checkpoint_index = 0
 
-model.train(True)
-model.to(device)
+if args.model_type == "Weighted":
+    model_student.train(True)
+    model_student.to(device)
+    model_teacher.to(device)
+
+    for param in model_teacher.parameters():
+        param.requires_grad = False
+
+else:
+    model.train(True)
+    model.to(device)
 
 patience = 0
 
 for epoch in range(epoch_start, args.epochs):
-    
+
     if patience == max_patience:
         break
     
-    train_loss, _, _, train_acc = train_epoch(model, train_loader, cel_criterion, sgd_optimizer, device)
+    if args.model_type == "Weighted":
+        train_loss, _, _, train_acc = train_distillation_epoch(model_teacher, model_student, train_loader, cel_criterion, sgd_optimizer, alpha, T, device) 
+    else:
+        train_loss, _, _, train_acc = train_epoch(model, train_loader, cel_criterion, sgd_optimizer, device)
+        
     losses.append(train_loss.item())
     train_accs.append(train_acc)
 
     if val_loader:
-        model.train(False)
-        val_loss, _, _, val_acc, val_acc_top5, stats = evaluate(model, val_loader, cel_criterion, device)
-        model.train(True)
+
+        if args.model_type == "Weighted":
+            model_student.train(False)
+            val_loss, _, _, val_acc, val_acc_top5, stats = evaluate_distillation(model_teacher, model_student, val_loader, cel_criterion, alpha, T, device)
+            model_student.train(True)
+        else:
+            model.train(False)
+            val_loss, _, _, val_acc, val_acc_top5, stats = evaluate(model, val_loader, cel_criterion, device)
+            model.train(True)
+
         val_accs.append(val_acc)
         val_accs_top5.append(val_acc_top5)
         wandb.log({
@@ -178,7 +205,7 @@ for epoch in range(epoch_start, args.epochs):
     # Save checkpoints if they are best in the current subset
     if args.save_checkpoints:
         if val_acc > top_val_acc:
-            print(stats)
+            #print(stats)
             print(val_set.inv_dict_labels_dataset)
             stats = {val_set.inv_dict_labels_dataset[k]:v for k,v in stats.items() if k < args.new_num_classes}
             
@@ -195,17 +222,26 @@ for epoch in range(epoch_start, args.epochs):
 
             model_save_folder_path = "out-checkpoints/" + args.experiment_name
 
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': sgd_optimizer.state_dict(),
-                'loss': train_loss
-            }, model_save_folder_path + f'/checkpoint_model.pth')
+            if args.model_type == "Weighted":
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model_student.state_dict(),
+                    'optimizer_state_dict': sgd_optimizer.state_dict(),
+                    'loss': train_loss
+                }, model_save_folder_path + f'/checkpoint_model.pth')
+                generate_csv_result(run, model_student, val_loader, model_save_folder_path, val_set.inv_dict_labels_dataset, device)
+            else:
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': sgd_optimizer.state_dict(),
+                    'loss': train_loss
+                }, model_save_folder_path + f'/checkpoint_model.pth')
+                generate_csv_result(run, model, val_loader, model_save_folder_path, val_set.inv_dict_labels_dataset, device)
             
-            generate_csv_result(run, model, val_loader, model_save_folder_path, val_set.inv_dict_labels_dataset, device)
             generate_csv_accuracy(df_stats, model_save_folder_path)
 
-            artifact = wandb.Artifact(f'best-model_{args.prev_num_classes}_{args.new_num_classes}_{run.id}.pth', type='model')
+            artifact = wandb.Artifact(f'best-model_{args.model_type}_{args.prev_num_classes}_{args.new_num_classes}_{run.id}.pth', type='model')
             artifact.add_file(model_save_folder_path + f'/checkpoint_model.pth')
             run.log_artifact(artifact)
             wandb.save(model_save_folder_path + f'/checkpoint_model.pth')

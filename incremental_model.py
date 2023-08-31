@@ -12,20 +12,20 @@ def incremental_model_type(args):
     if args.prev_num_classes == args.new_num_classes:
 
         #model = simpleSpoter(args.prev_num_classes)
-        if args.model_type == "fixed_linear" or args.model_type == "fixed_linear_old":
+        if "Fixed" in args.model_type:
             model = spoter_model.SPOTER(args.dataset_reference, hidden_dim=54*2)
         else:
             model = spoter_model.SPOTER(args.prev_num_classes, hidden_dim=54*2)
         return model
     
-    if args.model_type == "fixed_linear" or args.model_type == "fixed_linear_old":
+    if "Fixed" in args.model_type:
 
         model = spoter_model.SPOTER(args.dataset_reference, hidden_dim=54*2)
         checkpoint = torch.load(model_save_folder_path + f'checkpoint_model.pth')
         model.load_state_dict(checkpoint['model_state_dict'])
         return model
 
-    if args.model_type == "simple" or args.model_type == "simple_old":
+    if "Expansion" in args.model_type:
 
         #model = simpleSpoter(args.prev_num_classes)
         model = spoter_model.SPOTER(args.prev_num_classes, hidden_dim=54*2)
@@ -46,7 +46,7 @@ def incremental_model_type(args):
         model.pretrained_model.linear_class.bias.data[: args.prev_num_classes] = pretrained_biases
         '''
         return model
-    elif args.model_type == "distillation" or args.model_type == "distillation_old":
+    elif "Weighted" in args.model_type:
 
         #model = simpleSpoter(args.prev_num_classes)
         model_1 = spoter_model.SPOTER(args.prev_num_classes, hidden_dim=54*2)
