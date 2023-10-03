@@ -1,4 +1,4 @@
-# sign_recognition_incremental
+# Sign Language Recognition - Incremental Methods
 
 This repository have the code to train a Sign Language Recognition (SLR) model that use an incremental learning approach.
 
