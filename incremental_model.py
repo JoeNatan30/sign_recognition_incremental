@@ -10,7 +10,7 @@ def incremental_model_type(args):
     model_save_folder_path = "out-checkpoints/" + args.load_model_from
 
     if args.prev_num_classes == args.new_num_classes:
-
+        print("equal")
         #model = simpleSpoter(args.prev_num_classes)
         if "Fixed" in args.model_type:
             model = spoter_model.SPOTER(args.dataset_reference, hidden_dim=54*2)
@@ -18,14 +18,14 @@ def incremental_model_type(args):
             model = spoter_model.SPOTER(args.prev_num_classes, hidden_dim=54*2)
         return model
     
-    if "Fixed" in args.model_type:
+    if "Fixed" == args.model_type:
 
         model = spoter_model.SPOTER(args.dataset_reference, hidden_dim=54*2)
         checkpoint = torch.load(model_save_folder_path + f'checkpoint_model.pth')
         model.load_state_dict(checkpoint['model_state_dict'])
         return model
 
-    if "Expansion" in args.model_type:
+    elif "Expanded" == args.model_type:
 
         #model = simpleSpoter(args.prev_num_classes)
         model = spoter_model.SPOTER(args.prev_num_classes, hidden_dim=54*2)
@@ -46,8 +46,8 @@ def incremental_model_type(args):
         model.pretrained_model.linear_class.bias.data[: args.prev_num_classes] = pretrained_biases
         '''
         return model
-    elif "Weighted" in args.model_type:
-
+    elif "Weighted" == args.model_type:
+        print("Weighted")
         #model = simpleSpoter(args.prev_num_classes)
         model_1 = spoter_model.SPOTER(args.prev_num_classes, hidden_dim=54*2)
         model_2 = spoter_model.SPOTER(args.prev_num_classes, hidden_dim=54*2)
@@ -64,6 +64,69 @@ def incremental_model_type(args):
         model_2.linear_class.weight.data[: args.prev_num_classes] = pretrained_weights
         model_2.linear_class.bias.data[: args.prev_num_classes] = pretrained_biases
 
+        for param in model_1.parameters():
+            param.requires_grad = False
+
+        return model_1, model_2
+    
+    elif 'Expanded_frozen' == args.model_type:
+        model = spoter_model.SPOTER(args.prev_num_classes, hidden_dim=54*2)
+        # Load pretrained model
+        print(model_save_folder_path)
+        checkpoint = torch.load(model_save_folder_path + f'checkpoint_model.pth')
+        model.load_state_dict(checkpoint['model_state_dict'])
+
+        pretrained_weights = model.linear_class.weight.data
+        pretrained_biases = model.linear_class.bias.data
+        model.linear_class = nn.Linear(model.linear_class.in_features, args.new_num_classes)
+        model.linear_class.weight.data[: args.prev_num_classes] = pretrained_weights
+        model.linear_class.bias.data[: args.prev_num_classes] = pretrained_biases
+    
+        for param in model.parameters():
+            param.requires_grad = False
+        
+        for param in model.linear_class.parameters():
+            param.requires_grad = True
+
+        return model
+        
+    elif 'Weighted_frozen' == args.model_type:
+        model_1 = spoter_model.SPOTER(args.prev_num_classes, hidden_dim=54*2)
+        model_2 = spoter_model.SPOTER(args.prev_num_classes, hidden_dim=54*2)
+        print(model_save_folder_path + f'checkpoint_model.pth', args.prev_num_classes)
+        checkpoint = torch.load(model_save_folder_path + f'checkpoint_model.pth')
+        print(checkpoint)
+        model_1.load_state_dict(checkpoint['model_state_dict'])
+        model_2.load_state_dict(checkpoint['model_state_dict'])
+
+        pretrained_weights = model_1.linear_class.weight.data
+        pretrained_biases = model_1.linear_class.bias.data
+        
+        model_2.linear_class = nn.Linear(model_1.linear_class.in_features, args.new_num_classes)
+        model_2.linear_class.weight.data[: args.prev_num_classes] = pretrained_weights
+        model_2.linear_class.bias.data[: args.prev_num_classes] = pretrained_biases
+
+        for param in model_1.parameters():
+            param.requires_grad = False
+        
+        for param in model_2.parameters():
+            param.requires_grad = False
+        
+        for param in model_2.linear_class.parameters():
+            param.requires_grad = True
+            
         return model_1, model_2
 
-    
+    elif "Fixed_frozen" == args.model_type:
+
+        model = spoter_model.SPOTER(args.dataset_reference, hidden_dim=54*2)
+        checkpoint = torch.load(model_save_folder_path + f'checkpoint_model.pth')
+        model.load_state_dict(checkpoint['model_state_dict'])
+
+        for param in model.parameters():
+            param.requires_grad = False
+        
+        for param in model.linear_class.parameters():
+            param.requires_grad = True
+
+        return model

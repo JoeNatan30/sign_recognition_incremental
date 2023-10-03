@@ -46,14 +46,24 @@ version = int(os.path.splitext(os.path.basename(dict_input))[0].split('_')[-1][1
 print(version) 
 
 #args.model_type = "simple"#"simple"#"fixed_linear"
-dataset = "DGI305-AEC"
-limit_type = "fixed"#"fixed_with_old" #"fixed"
+limit_type = args.limit_type #"fixed_with_old" #"fixed"
 #previous_model_type = "simple"#"simple"#"fixed_linear"#"base"
-maximun_train = 12
-maximun_val = 3
+maximun_train = args.maximun_train
+maximun_val = args.maximun_val
+instance_inc = args.instance_inc
+increment_count = args.increment_count
 
 df_words = pd.read_csv(args.word_list_path, encoding='utf-8', header=None)
 words = list(df_words[0])
+
+inc_range = args.increment_count.split('-')
+inc_range = [int(_i) for _i in inc_range]
+
+if len(inc_range) > 1:
+    args.prev_num_classes  = inc_range[-2]
+    args.new_num_classes = inc_range[-1]
+else:
+    args.prev_num_classes, args.new_num_classes = inc_range[0], inc_range[0]
 
 all_words = words[:args.new_num_classes]
 new_words = words[args.prev_num_classes:args.new_num_classes]
@@ -63,18 +73,25 @@ max_patience = 200
 alpha = args.prev_num_classes / args.new_num_classes # old / total
 T = 2
 
-if args.previous_model_type == "Base":
-    args.load_model_from = f"{args.previous_model_type}_spoter_{args.prev_num_classes}_{args.prev_num_classes}_V{version}/"
+dataset_name = args.training_set_path.split("--")[0].split('/')[-1]
+
+if args.previous_model_type == "Base" or args.previous_model_type == 'Fixed_Base':
+    args.load_model_from = f"{args.previous_model_type}_{dataset_name}_spoter2_{args.prev_num_classes}_{args.prev_num_classes}_V{version}/"
 else:
-    args.load_model_from = f"{args.previous_model_type}_spoter_{args.new_num_classes - args.prev_num_classes}_{args.prev_num_classes}_V{version}/"
+    args.load_model_from = f"{args.previous_model_type}_{dataset_name}_{limit_type}_spoter2_{inc_range[-3]}_{args.prev_num_classes}_V{version}/"
+    #if limit_type == 'NIC':
+    #    args.load_model_from = f"{args.previous_model_type}_{dataset_name}_old_spoter_{inc_range[-3]}_{args.prev_num_classes}_V{version}/"
+#args.epochs = 1000
+#args.lr = 0.00005
 
-args.epochs = 1000
-args.lr = 0.00005
-
-PROJECT_WANDB = "SIMBig_incremental_learning"
+PROJECT_WANDB = "ISAAC_incremental_learning" #ISAAC_incremental_learning #SIMBig_incremental_learning
 ENTITY = "joenatan30" 
-TAG = ["No_freezing",f'prev_{args.prev_num_classes}',f'new_{args.new_num_classes}', args.model_type, f'V{version}']
-args.experiment_name = f'{args.model_type}_spoter_{args.prev_num_classes}_{args.new_num_classes}_V{version}'
+TAG = [f'prev_{args.prev_num_classes}',f'new_{args.new_num_classes}', args.model_type, f'V{version}', dataset_name]
+
+if args.model_type == "Base" or args.model_type == 'Fixed_Base':
+    args.experiment_name = f'{args.model_type}_{dataset_name}_spoter2_{args.prev_num_classes}_{args.prev_num_classes}_V{version}'
+else:
+    args.experiment_name = f'{args.model_type}_{dataset_name}_{limit_type}_spoter2_{args.prev_num_classes}_{args.new_num_classes}_V{version}'
 
 run = wandb.init(project=PROJECT_WANDB,
                  entity=ENTITY,
@@ -86,7 +103,7 @@ run = wandb.init(project=PROJECT_WANDB,
 config = wandb.config
 wandb.watch_called = False
 
-if args.model_type == "Weighted":
+if args.model_type == "Weighted" or args.model_type == 'Weighted_frozen':
     model_teacher, model_student = incremental_model_type(args)
 else:
     model = incremental_model_type(args)
@@ -96,17 +113,17 @@ else:
 transform = transforms.Compose([GaussianNoise(args.gaussian_mean, args.gaussian_std)])
 if args.prev_num_classes == args.new_num_classes:
     train_set = LSP_Dataset(args.training_set_path, words=old_words, transform=transform, have_aumentation=True, keypoints_model='mediapipe',
-                        limit_type=limit_type, maximun=maximun_train)
-elif limit_type == "Fixed_with_old":
+                        limit_type=limit_type, instance_inc=instance_inc, increment_count=increment_count)
+elif limit_type == "NIC" or limit_type=='exemplar':
     train_set = LSP_Dataset(args.training_set_path, words=all_words, transform=transform, have_aumentation=True, keypoints_model='mediapipe',
-                        limit_type=limit_type, maximun=maximun_train)
+                        limit_type=limit_type, instance_inc=instance_inc, increment_count=increment_count)
 else:
     train_set = LSP_Dataset(args.training_set_path, words=new_words, transform=transform, have_aumentation=True, keypoints_model='mediapipe',
-                        limit_type=limit_type, maximun=maximun_train)
+                        limit_type=limit_type, instance_inc=instance_inc, increment_count=increment_count)
 
 # Validation set
 val_set = LSP_Dataset(args.validation_set_path, words=all_words, keypoints_model='mediapipe', have_aumentation=False,
-                      limit_type="Fixed", maximun=maximun_val)
+                      limit_type="NC", instance_inc=maximun_val, increment_count=increment_count)
 val_loader = DataLoader(val_set, shuffle=False, generator=g)
 
 # Testing set
@@ -122,7 +139,7 @@ train_loader = DataLoader(train_set, shuffle=True, generator=g)
 #class_weight = torch.FloatTensor([1/train_set.label_freq[i] for i in range(args.new_num_classes)]).to(device)
 cel_criterion = nn.CrossEntropyLoss(label_smoothing=0.1)#, weight=class_weight)
 
-if args.model_type == "Weighted":
+if args.model_type == "Weighted" or args.model_type == 'Weighted_frozen':
     sgd_optimizer = optim.SGD(model_student.parameters(), lr=args.lr)
 else:
     sgd_optimizer = optim.SGD(model.parameters(), lr=args.lr)
@@ -137,7 +154,7 @@ Path("out-img/").mkdir(parents=True, exist_ok=True)
 print("#"*50)
 print("#"*30)
 print("#"*10)
-if args.model_type == "Weighted":
+if args.model_type == "Weighted" or args.model_type == 'Weighted_frozen':
     print("Num Trainable Params: ", sum(p.numel() for p in model_student.parameters() if p.requires_grad))
 else:
     print("Num Trainable Params: ", sum(p.numel() for p in model.parameters() if p.requires_grad))
@@ -153,13 +170,10 @@ lr_progress = []
 top_train_acc, top_val_acc = 0, 0
 checkpoint_index = 0
 
-if args.model_type == "Weighted":
+if args.model_type == "Weighted" or args.model_type == 'Weighted_frozen':
     model_student.train(True)
     model_student.to(device)
     model_teacher.to(device)
-
-    for param in model_teacher.parameters():
-        param.requires_grad = False
 
 else:
     model.train(True)
@@ -172,7 +186,7 @@ for epoch in range(epoch_start, args.epochs):
     if patience == max_patience:
         break
     
-    if args.model_type == "Weighted":
+    if args.model_type == "Weighted" or args.model_type == 'Weighted_frozen':
         train_loss, _, _, train_acc = train_distillation_epoch(model_teacher, model_student, train_loader, cel_criterion, sgd_optimizer, alpha, T, device) 
     else:
         train_loss, _, _, train_acc = train_epoch(model, train_loader, cel_criterion, sgd_optimizer, device)
@@ -182,7 +196,7 @@ for epoch in range(epoch_start, args.epochs):
 
     if val_loader:
 
-        if args.model_type == "Weighted":
+        if args.model_type == "Weighted" or args.model_type == 'Weighted_frozen':
             model_student.train(False)
             val_loss, _, _, val_acc, val_acc_top5, stats = evaluate_distillation(model_teacher, model_student, val_loader, cel_criterion, alpha, T, device)
             model_student.train(True)
@@ -199,7 +213,8 @@ for epoch in range(epoch_start, args.epochs):
             'val_acc': val_acc,
             'val_top5_acc': val_acc_top5,
             'val_loss':val_loss,
-            'epoch': epoch
+            'epoch': epoch,
+            "top_val_acc": top_val_acc,
         })
     patience = patience + 1
     # Save checkpoints if they are best in the current subset
@@ -222,7 +237,7 @@ for epoch in range(epoch_start, args.epochs):
 
             model_save_folder_path = "out-checkpoints/" + args.experiment_name
 
-            if args.model_type == "Weighted":
+            if args.model_type == "Weighted" or args.model_type == 'Weighted_frozen':
                 torch.save({
                     'epoch': epoch,
                     'model_state_dict': model_student.state_dict(),

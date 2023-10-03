@@ -203,26 +203,51 @@ def normalize_pose_hands_function(data, body_section, body_part):
 
     return data, kp_bp_index, body_section_dict
 
-def limitIntancesPerClass(videos, labels, num_labels, video_names, limit_type="fixed", maximun=10000):
+def limitIntancesPerClass(videos, labels, num_labels, video_names, limit_type="NC", instance_inc=20, increment_count='22-43-64'):
         
     dict_class = {_num_label:[] for _num_label in set(num_labels)}
 
-    for pos, _num_label in enumerate(num_labels):
-        dict_class[_num_label].append(pos)
+    range_values = increment_count.split('-')
+    range_values = [int(_i) for _i in range_values]
+    range_pos = list(range(len(range_values)))[::-1]
+
+    _init = 0
+    pos = -1
+
+    for _pos, _num_label in enumerate(num_labels):
+        dict_class[_num_label].append(_pos)
 
     for _num_label in set(num_labels):
-        if limit_type == "fixed": 
-            dict_class[_num_label] = dict_class[_num_label][:maximun]
-        elif limit_type == "fixed_with_old":
-            total = len(set(num_labels))
-            increment_ref = 20
-            _value = total//increment_ref - _num_label//increment_ref
 
-            minimun = (_value-1)*increment_ref
-            maximun = (_value)*increment_ref
+        if limit_type == "NC": 
+            maximun = instance_inc
+            dict_class[_num_label] = dict_class[_num_label][:maximun]
+
+        elif limit_type == "NIC":
+            for range_val, _pos in zip(range_values, range_pos):
+                _end = range_val
+                if _init <= _num_label < _end:
+                    pos = _pos
+                    break
+                _init = range_val
+
+            minimun = (pos)*instance_inc
+            maximun = (pos+1)*instance_inc
             dict_class[_num_label] = dict_class[_num_label][minimun:maximun]
 
-        else:
+        elif limit_type == "exemplar":
+            for range_val, _pos in zip(range_values, range_pos):
+                _end = range_val
+                if _init <= _num_label < _end:
+                    pos = _pos
+                    break
+                _init = range_val
+            
+            minimun = 0 if pos==0 else instance_inc + 2 * (pos-1)
+            maximun = instance_inc + 2 * pos
+            dict_class[_num_label] = dict_class[_num_label][minimun:maximun]
+ 
+        elif limit_type == "total":
             dict_class[_num_label] = dict_class[_num_label]
 
     ind_list = [ind for values in dict_class.values() for ind in values]
@@ -241,8 +266,9 @@ def get_dataset_from_hdf5(path,keypoints_model,words,landmarks_ref,keypoints_num
                           list_labels_banned=[],
                           dict_labels_dataset=None,
                           inv_dict_labels_dataset=None,
-                          limit_type="fixed",
-                          maximun=10000):
+                          limit_type="NC",
+                          instance_inc=20,
+                          increment_count='22-43-64'):
 
     print('path                       :',path)
     print('keypoints_model            :',keypoints_model)
@@ -332,8 +358,6 @@ def get_dataset_from_hdf5(path,keypoints_model,words,landmarks_ref,keypoints_num
         #data_percentage_groups = np.array(data[index]['percentage_group'])
         #data_max_consec = np.array(data[index]['max_percentage'])
 
-
-
         video_dataset.append(data_video)
         labels_dataset.append(data_label)
         num_labels_dataset.append(data_num_label)
@@ -366,7 +390,8 @@ def get_dataset_from_hdf5(path,keypoints_model,words,landmarks_ref,keypoints_num
                                                                                                   num_labels_dataset,
                                                                                                   video_name_dataset,
                                                                                                   limit_type,
-                                                                                                  maximun)
+                                                                                                  instance_inc,
+                                                                                                  increment_count)
 
 
 
@@ -401,7 +426,7 @@ class LSP_Dataset(Dataset):
     def __init__(self, dataset_filename: str,keypoints_model:str, words=None, transform=None, have_aumentation=True,
                  augmentations_prob=0.5, normalize=False,landmarks_ref= 'Mapeo landmarks librerias.csv',
                 dict_labels_dataset=None,inv_dict_labels_dataset=None, keypoints_number = 54,
-                limit_type="fixed", maximun=10000):
+                limit_type="NC", instance_inc=20, increment_count='22-43-64'):
         """
         Initiates the HPOESDataset with the pre-loaded data from the h5 file.
 
@@ -439,7 +464,8 @@ class LSP_Dataset(Dataset):
                                                                                                                                        dict_labels_dataset=dict_labels_dataset,
                                                                                                                                        inv_dict_labels_dataset=inv_dict_labels_dataset,
                                                                                                                                        limit_type=limit_type, 
-                                                                                                                                       maximun=maximun)
+                                                                                                                                       instance_inc=instance_inc,
+                                                                                                                                       increment_count=increment_count)
         # HAND AND POSE NORMALIZATION
         video_dataset, keypoint_body_part_index, body_section_dict = normalize_pose_hands_function(video_dataset, body_section, body_part)
 
