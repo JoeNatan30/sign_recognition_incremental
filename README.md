@@ -29,6 +29,10 @@ We use `pip` to install the dependencies. To install these dependencies, use the
 
 The commands used for our experiment are available in the following shell script file (`SIMBig2023_Commands.sh`). Please note that the file contains a list of commands, but it should not be executed as a normal shell script, as it won't function properly in that context.
 
+Additionally, we have included three CSV files containing the lists of word orders used to test the methods:
+- incrementalList_V1.csv
+- incrementalList_V2.csv
+- incrementalList_V3.csv
 
 # Citation
 
