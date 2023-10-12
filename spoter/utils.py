@@ -15,6 +15,7 @@ def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None)
 
     for i, data in enumerate(dataloader):
         inputs, labels, _ = data
+
         inputs = inputs.squeeze(0).to(device)
         labels = labels.to(device, dtype=torch.long)
 

@@ -68,7 +68,7 @@ else:
 all_words = words[:args.new_num_classes]
 new_words = words[args.prev_num_classes:args.new_num_classes]
 old_words = words[:args.prev_num_classes]
-
+print("Longitud ->", len(old_words))
 max_patience = 200
 alpha = args.prev_num_classes / args.new_num_classes # old / total
 T = 2
@@ -89,9 +89,9 @@ ENTITY = "joenatan30"
 TAG = [f'prev_{args.prev_num_classes}',f'new_{args.new_num_classes}', args.model_type, f'V{version}', dataset_name]
 
 if args.model_type == "Base" or args.model_type == 'Fixed_Base':
-    args.experiment_name = f'{args.model_type}_{dataset_name}_spoter2_{args.prev_num_classes}_{args.prev_num_classes}_V{version}'
+    args.experiment_name = f'{args.model_type}_{dataset_name}_spoter_{args.prev_num_classes}_{args.prev_num_classes}_V{version}'
 else:
-    args.experiment_name = f'{args.model_type}_{dataset_name}_{limit_type}_spoter2_{args.prev_num_classes}_{args.new_num_classes}_V{version}'
+    args.experiment_name = f'{args.model_type}_{dataset_name}_{limit_type}_spoter_{args.prev_num_classes}_{args.new_num_classes}_V{version}'
 
 run = wandb.init(project=PROJECT_WANDB,
                  entity=ENTITY,
@@ -120,12 +120,12 @@ elif limit_type == "NIC" or limit_type=='exemplar':
 else:
     train_set = LSP_Dataset(args.training_set_path, words=new_words, transform=transform, have_aumentation=True, keypoints_model='mediapipe',
                         limit_type=limit_type, instance_inc=instance_inc, increment_count=increment_count)
-
+print('Reading Training dataset completed!')
 # Validation set
 val_set = LSP_Dataset(args.validation_set_path, words=all_words, keypoints_model='mediapipe', have_aumentation=False,
                       limit_type="NC", instance_inc=maximun_val, increment_count=increment_count)
 val_loader = DataLoader(val_set, shuffle=False, generator=g)
-
+print('Reading Training dataset completed!')
 # Testing set
 if args.testing_set_path:
     eval_set = LSP_Dataset(args.testing_set_path, words=words, keypoints_model='mediapipe')

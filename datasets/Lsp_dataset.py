@@ -47,7 +47,6 @@ def prepare_keypoints_image(keypoints,tag):
 def normalize_pose(data, body_dict):
 
     sequence_size = data.shape[0]
-    valid_sequence = True
 
     last_starting_point, last_ending_point = None, None
 
@@ -55,12 +54,10 @@ def normalize_pose(data, body_dict):
 
         # Prevent from even starting the analysis if some necessary elements are not present
         if (data[sequence_index][body_dict['pose_left_shoulder']][0] == 0.0 or data[sequence_index][body_dict['pose_right_shoulder']][0] == 0.0):
-            if not last_starting_point:
-                valid_sequence = False
-                continue
-
-            else:
+            if last_starting_point:
                 starting_point, ending_point = last_starting_point, last_ending_point
+            else:
+                continue
     
         else:
 
@@ -132,16 +129,16 @@ def normalize_hand(data, body_section_dict):
     for sequence_index in range(sequence_size):
 
         # Retrieve all of the X and Y values of the current frame
-        landmarks_x_values = data[sequence_index][:, 0]
-        landmarks_y_values = data[sequence_index][:, 1]
+        landmarks = data[sequence_index]
+        x_values = landmarks[:, 0]
+        y_values = landmarks[:, 1]
 
         # Prevent from even starting the analysis if some necessary elements are not present
         #if not landmarks_x_values or not landmarks_y_values:
         #    continue
 
         # Calculate the deltas
-        width, height = max(landmarks_x_values) - min(landmarks_x_values), max(landmarks_y_values) - min(
-            landmarks_y_values)
+        width, height = np.ptp(x_values), np.ptp(y_values)
         if width > height:
             delta_x = 0.1 * width
             delta_y = delta_x + ((width - height) / 2)
@@ -150,9 +147,22 @@ def normalize_hand(data, body_section_dict):
             delta_x = delta_y + ((height - width) / 2)
 
         # Set the starting and ending point of the normalization bounding box
-        starting_point = (min(landmarks_x_values) - delta_x, min(landmarks_y_values) - delta_y)
-        ending_point = (max(landmarks_x_values) + delta_x, max(landmarks_y_values) + delta_y)
+        starting_point = np.array([np.min(x_values) - delta_x, np.min(y_values) - delta_y])
+        ending_point = np.array([np.max(x_values) + delta_x, np.max(y_values) + delta_y])
 
+        for pos, kp in enumerate(data[sequence_index]):
+
+            # Prevent from trying to normalize incorrectly captured points or in case of zero bounding box dimensions
+            if (data[sequence_index][pos][0] == 0 or (ending_point[0] - starting_point[0]) == 0 or (starting_point[1] - ending_point[1]) == 0):
+                continue
+
+            normalized_x = (data[sequence_index][pos][0] - starting_point[0]) / (ending_point[0] - starting_point[0])
+            normalized_y = (data[sequence_index][pos][1] - starting_point[1]) / (ending_point[1] - starting_point[1])
+
+            data[sequence_index][pos][0] = normalized_x
+            data[sequence_index][pos][1] = normalized_y
+
+        '''
         # Normalize individual landmarks and save the results
         for pos, kp in enumerate(data[sequence_index]):
 
@@ -168,7 +178,7 @@ def normalize_hand(data, body_section_dict):
 
             data[sequence_index][pos][0] = normalized_x
             data[sequence_index][pos][1] = normalized_y
-
+        '''
     return data
 
 ###################################################################################
@@ -289,19 +299,19 @@ def get_dataset_from_hdf5(path,keypoints_model,words,landmarks_ref,keypoints_num
         index_array_column  = 'wp_indexInArray'
     print('use column for index keypoint :',index_array_column)
 
+
     assert not index_array_column is None
 
     # all the data from landmarks_ref
     df_keypoints = pd.read_csv(landmarks_ref, skiprows=1)
-
-    # 29, 54 or 71 points
+    
     if keypoints_number == 29:
         df_keypoints = df_keypoints[(df_keypoints['Selected 29']=='x' )& (df_keypoints['Key']!='wrist')]
     elif keypoints_number == 71:
         df_keypoints = df_keypoints[(df_keypoints['Selected 71']=='x' )& (df_keypoints['Key']!='wrist')]
     else:
         df_keypoints = df_keypoints[(df_keypoints['Selected 54']=='x')]
-
+    
     logging.info(" using keypoints_number: "+str(keypoints_number))
 
     idx_keypoints = sorted(df_keypoints[index_array_column].astype(int).values)
@@ -319,71 +329,29 @@ def get_dataset_from_hdf5(path,keypoints_model,words,landmarks_ref,keypoints_num
 
     print('Reading dataset .. ')
     data = get_data_from_h5(path)
-    #torch.Size([5, 71, 2])
+    
+    group = data['LSA64']
+    _data = group['data']
+    _label = group['label']
+    _length = group['length']
+    _class_number = group['class_number']
+    _data_video_name = group['video_name']
+    _shape = group['shape']
 
     print('Total size dataset : ',len(data.keys()))
     #print('Keys in dataset:', data.keys())
-    video_dataset  = []
-    labels_dataset = []
-    num_labels_dataset = []
 
-    video_name_dataset = []
+    labels_dataset = [value.decode('utf-8') for value in _label]
+    
+    video_dataset  = [np.transpose(np.array(value).reshape(length, _shape[0], _shape[1]), (0,2,1)) for value, length, lab in zip(_data, _length, labels_dataset) if lab in words]
+    num_labels_dataset = [int(value) for value, lab in zip(_class_number, labels_dataset) if lab in words]
+    video_name_dataset = [value.decode('utf-8') for value, lab in zip(_data_video_name, labels_dataset) if lab in words]
+    labels_dataset = [value for value in labels_dataset if value in words]
+    assert len(video_dataset) == len(labels_dataset) == len(num_labels_dataset) == len(video_name_dataset)
+
     false_seq_dataset = []
     percentage_dataset = []
     max_consec_dataset = []
-    time.sleep(2)
-    
-    for index in tqdm.tqdm(list(data.keys())):
-        data_video = np.array(data[index]['data'])
-        data_label = np.array(data[index]['label']).item().decode('utf-8')
-        data_num_label = int(np.array(data[index]['class_number']))
-        
-        # F x C x K  (frames, coords, keypoitns)
-        n_frames, n_axis, n_keypoints = data_video.shape
-
-        if data_label not in words:
-            continue
-
-        data_video = np.transpose(data_video, (0,2,1)) #transpose to n_frames, n_keypoints, n_axis 
-        if index=='0':
-            print('original size video : ',data_video.shape,'-- label : ',data_label)
-            print('filtering by keypoints idx .. ')
-        data_video = data_video[:,idx_keypoints,:]
-
-        if index=='0':
-            print('filtered size video : ',data_video.shape,'-- label : ',data_label)
-
-        data_video_name = np.array(data[index]['video_name']).item().decode('utf-8')
-        #data_false_seq = np.array(data[index]['false_seq'])
-        #data_percentage_groups = np.array(data[index]['percentage_group'])
-        #data_max_consec = np.array(data[index]['max_percentage'])
-
-        video_dataset.append(data_video)
-        labels_dataset.append(data_label)
-        num_labels_dataset.append(data_num_label)
-        video_name_dataset.append(data_video_name.encode('utf-8'))
-        #false_seq_dataset.append(data_false_seq)
-        #percentage_dataset.append(data_percentage_groups)
-        #max_consec_dataset.append(data_max_consec)
-        # # Get additional video attributes
-        # videoname = np.array(data[index]['video_name']).item().decode('utf-8')
-        # false_seq = np.array(data[index]['false_seq']).item()
-        # percentage_groups = np.array(data[index]['percentage_group']).item()
-        # max_consec = np.array(data[index]['max_percentage']).item()
-    #     print("videoname:",videoname,"type:",type(videoname))                
-    #     print("false_seq:",false_seq,"type:",type(false_seq))
-    #     print("percentage_groups:",percentage_groups,"type:",type(percentage_groups))
-    #     print("max_consec:",max_consec,"type:",type(max_consec))
-
-    #     video_info.append((
-    #         videoname,
-    #         false_seq,
-    #         percentage_groups,
-    #         max_consec
-    #     ))
-
-    # print("video info shape:",len(video_info))
-
 
     video_dataset, labels_dataset, num_labels_dataset, video_name_dataset = limitIntancesPerClass(video_dataset, 
                                                                                                   labels_dataset,
@@ -406,13 +374,15 @@ def get_dataset_from_hdf5(path,keypoints_model,words,landmarks_ref,keypoints_num
     print('sorted(set(labels_dataset))  : ',sorted(set(labels_dataset)))
     print('dict_labels_dataset      :',dict_labels_dataset)
     print('inv_dict_labels_dataset  :',inv_dict_labels_dataset)
-    encoded_dataset = [dict_labels_dataset[label] for label in labels_dataset]
+    encoded_dataset = num_labels_dataset
     print('encoded_dataset:',len(encoded_dataset))
+    print('labe_dataset:',len(labels_dataset))
+    print('data_dataset:',len(video_dataset))
 
     print('label encoding completed!')
 
     print('total unique labels : ',len(set(labels_dataset)))
-    print('Reading dataset completed!')
+    
 
     return video_dataset, video_name_dataset, labels_dataset, encoded_dataset, dict_labels_dataset, inv_dict_labels_dataset, df_keypoints['Section'], section_keypoints
 
@@ -466,6 +436,7 @@ class LSP_Dataset(Dataset):
                                                                                                                                        limit_type=limit_type, 
                                                                                                                                        instance_inc=instance_inc,
                                                                                                                                        increment_count=increment_count)
+        print("Normalizing data...")
         # HAND AND POSE NORMALIZATION
         video_dataset, keypoint_body_part_index, body_section_dict = normalize_pose_hands_function(video_dataset, body_section, body_part)
 
@@ -517,14 +488,13 @@ class LSP_Dataset(Dataset):
                 depth_map = self.augmentation.augment_arm_joint_rotate(depth_map, 0.3, angle_range=(-4, 4))
 
 
-
-
-
-        video_name = self.video_name[idx].decode('utf-8')
+        video_name = self.video_name[idx]
         #false_seq = self.false_seq
         #percentage_group = self.percentage
         #max_consec = self.max_consec
-        label = torch.Tensor([self.labels[idx]])
+   
+        label = torch.tensor([self.labels[idx]], dtype=torch.int64)
+
         depth_map = depth_map - 0.5
         if self.transform:
             depth_map = self.transform(depth_map)

@@ -46,7 +46,6 @@ class SPOTER(nn.Module):
 
     def __init__(self, num_classes, hidden_dim=55):
         super().__init__()
-
         self.row_embed = nn.Parameter(torch.rand(1024, hidden_dim))
         self.pos = nn.Parameter(torch.cat([self.row_embed[0].unsqueeze(0).repeat(1, 1, 1)], dim=-1).flatten(0, 1).unsqueeze(0))
         self.class_query = nn.Parameter(torch.rand(1, hidden_dim))
