@@ -25,6 +25,8 @@ We utilized the [ConnectingPoints Repository](https://github.com/JoeNatan30/Conn
 
 # Instructions for Replicating Our Paper Results
 
+In this repository, check out the tags section. Look for "SIMBig2023" to find the release you need. Download the contents and follow the provided instructions.
+
 We use `pip` to install the dependencies. To install these dependencies, use the following file `requirement.txt`.
 
 The commands used for our experiment are available in the following shell script file (`SIMBig2023_Commands.sh`). Please note that the file contains a list of commands, but it should not be executed as a normal shell script, as it won't function properly in that context.
