@@ -76,15 +76,15 @@ T = 2
 dataset_name = args.training_set_path.split("--")[0].split('/')[-1]
 
 if args.previous_model_type == "Base" or args.previous_model_type == 'Fixed_Base':
-    args.load_model_from = f"{args.previous_model_type}_{dataset_name}_spoter2_{args.prev_num_classes}_{args.prev_num_classes}_V{version}/"
+    args.load_model_from = f"{args.previous_model_type}_{dataset_name}_spoter_{args.prev_num_classes}_{args.prev_num_classes}_V{version}/"
 else:
-    args.load_model_from = f"{args.previous_model_type}_{dataset_name}_{limit_type}_spoter2_{inc_range[-3]}_{args.prev_num_classes}_V{version}/"
+    args.load_model_from = f"{args.previous_model_type}_{dataset_name}_{limit_type}_spoter_{inc_range[-3]}_{args.prev_num_classes}_V{version}/"
     #if limit_type == 'NIC':
     #    args.load_model_from = f"{args.previous_model_type}_{dataset_name}_old_spoter_{inc_range[-3]}_{args.prev_num_classes}_V{version}/"
 #args.epochs = 1000
 #args.lr = 0.00005
 
-PROJECT_WANDB = "ISAAC_incremental_learning" #ISAAC_incremental_learning #SIMBig_incremental_learning
+PROJECT_WANDB = "Journal_incremental_learning" #ISAAC_incremental_learning #SIMBig_incremental_learning
 ENTITY = "joenatan30" 
 TAG = [f'prev_{args.prev_num_classes}',f'new_{args.new_num_classes}', args.model_type, f'V{version}', dataset_name]
 
